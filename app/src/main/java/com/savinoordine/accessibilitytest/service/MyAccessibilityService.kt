@@ -1,92 +1,107 @@
 package com.savinoordine.accessibilitytest.service
 
-import android.accessibilityservice.AccessibilityGestureEvent
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.AccessibilityServiceInfo
-import android.content.Context
-import android.provider.Settings
-import android.text.TextUtils
+import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.GestureDescription.StrokeDescription
+import android.graphics.Path
+import android.graphics.PixelFormat
 import android.util.Log
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Button
+import android.widget.FrameLayout
 import com.savinoordine.accessibilitytest.MainActivity.Companion.TAG
+import com.savinoordine.accessibilitytest.R
 import javax.inject.Inject
+
 
 class MyAccessibilityService
 @Inject
 constructor() : AccessibilityService() {
 
+    var mLayout: FrameLayout? = null
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        Log.d(TAG, "onAccessibilityEvent: $event")
-
         val eventText: String = when (event?.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> "Clicked"
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> "Focused"
             else -> ""
         }
-        Log.d(TAG, eventText)
-
+        Log.d(TAG, "Event: $eventText")
     }
 
     override fun onInterrupt() {
-        Log.d(">>>", "Interrupt")
-
-    }
-
-    override fun onGesture(gestureEvent: AccessibilityGestureEvent): Boolean {
-        Log.d(">>>", "performing global action")
-        performGlobalAction(GLOBAL_ACTION_BACK)
-        return true
+        Log.d(TAG, "Interrupt")
     }
 
     override fun onServiceConnected() {
         Log.d(">>>", "connected")
-        val info = AccessibilityServiceInfo()
-        info.apply {
-            eventTypes =
-                AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_VIEW_FOCUSED
-//            packageNames = arrayOf("com.example.android.myFirstApp", "com.example.android.mySecondApp")
-            feedbackType = AccessibilityEvent.TYPES_ALL_MASK
-            notificationTimeout = 500
-            performGlobalAction(1)
-            serviceInfo = info
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        mLayout = FrameLayout(this)
+        val lp = WindowManager.LayoutParams()
+        lp.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        lp.format = PixelFormat.TRANSLUCENT
+        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        lp.width = WindowManager.LayoutParams.WRAP_CONTENT
+        lp.height = WindowManager.LayoutParams.WRAP_CONTENT
+        lp.gravity = Gravity.TOP
+        val inflater = LayoutInflater.from(this)
+        inflater.inflate(R.layout.action_bar, mLayout)
+        wm.addView(mLayout, lp)
+
+        configurePowerButton()
+        configureSwipeButton()
+        configureClick()
+    }
+
+    private fun configurePowerButton() {
+        val powerButton: Button = mLayout!!.findViewById<View>(R.id.power) as Button
+        powerButton.setOnClickListener { performGlobalAction(GLOBAL_ACTION_POWER_DIALOG) }
+    }
+
+    private fun configureSwipeButton() {
+        val swipeButton = mLayout!!.findViewById<View>(R.id.swipe) as Button
+        swipeButton.setOnClickListener {
+            val swipePath = Path()
+            swipePath.moveTo(1000F, 1000F)
+            swipePath.lineTo(100F, 1000F)
+            val gestureBuilder = GestureDescription.Builder()
+            gestureBuilder.addStroke(StrokeDescription(swipePath, 0, 500))
+            dispatchGesture(gestureBuilder.build(), null, null)
         }
     }
 
-    fun isAccessibilityServiceEnabled(mContext: Context): Boolean {
-        var accessibilityEnabled = 0
-        val service: String =
-            mContext.packageName + "/" + MyAccessibilityService::class.java.canonicalName
-        try {
-            accessibilityEnabled = Settings.Secure.getInt(
-                mContext.applicationContext.contentResolver,
-                Settings.Secure.ACCESSIBILITY_ENABLED
-            )
-            Log.v(TAG, "accessibilityEnabled = $accessibilityEnabled")
-        } catch (e: Settings.SettingNotFoundException) {
-            Log.e(TAG, "Error finding setting, default accessibility to not found: " + e.message)
+    private fun configureClick() {
+        val clickButton = mLayout!!.findViewById<View>(R.id.click) as Button
+        clickButton.setOnClickListener {
+            val p = Path()
+            val displayMetrics = resources.displayMetrics
+            val height = displayMetrics.heightPixels;
+            val top = height * .25
+            val bottom = height * .75
+            val midX = displayMetrics.widthPixels / 2
+
+            p.moveTo(midX.toFloat(), bottom.toFloat())
+            p.lineTo(midX.toFloat(), top.toFloat())
+
+            val gestureBuilder = GestureDescription.Builder()
+            gestureBuilder.addStroke(StrokeDescription(p, 10L, 200L, false))
+            dispatchGesture(gestureBuilder.build(), callback, null)
         }
-        val mStringColonSplitter = TextUtils.SimpleStringSplitter(':')
-        if (accessibilityEnabled == 1) {
-            Log.v(TAG, "Accessibility Is Enabled")
-            val settingValue: String = Settings.Secure.getString(
-                mContext.applicationContext.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            )
-            if (settingValue != null) {
-                mStringColonSplitter.setString(settingValue)
-                while (mStringColonSplitter.hasNext()) {
-                    val accessibilityService = mStringColonSplitter.next()
-//                    Log.v(TAG, "AccessibilityService :: $this ")
-                    if (accessibilityService.equals(service, ignoreCase = true)) {
-                        Log.v(TAG, "accessibility is switched on!")
-                        return true
-                    }
-                }
-            }
-        } else {
-            Log.v(TAG, "accessibility is disabled")
+    }
+
+    private val callback = object : AccessibilityService.GestureResultCallback() {
+        override fun onCompleted(gestureDescription: GestureDescription?) {
+            Log.d(TAG, "gesture completed")
+            super.onCompleted(gestureDescription)
         }
-        return false
+
+        override fun onCancelled(gestureDescription: GestureDescription?) {
+            Log.d(TAG, "gesture cancelled")
+            super.onCancelled(gestureDescription)
+        }
     }
 
 }
